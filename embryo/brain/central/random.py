@@ -4,10 +4,12 @@ Created Nov 27, 2020 by Minhui Li
 '''
 
 
-from embryo.brain.central.base import Agent
+from embryo.brain.central import CENTRAL_REGISTRY
+from embryo.brain.central.base import Central
 
 
-class RandomAgent(Agent):
+@CENTRAL_REGISTRY.register()
+class RandomCentral(Central):
     '''Random agent as a baseline
     '''
 

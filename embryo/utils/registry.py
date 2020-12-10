@@ -4,7 +4,7 @@ Derived from fvcore project https://github.com/facebookresearch/fvcore
 '''
 
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 class Registry:
@@ -23,7 +23,7 @@ class Registry:
     def _do_register(
         self,
         name: str,
-        obj: object
+        obj: Any,
     ) -> None:
         assert (
             name not in self._obj_map

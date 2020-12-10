@@ -1,1 +1,1 @@
-from .ion import Ion
+from embryo.ion.ion import Ion, extend_space

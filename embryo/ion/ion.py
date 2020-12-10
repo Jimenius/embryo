@@ -31,6 +31,7 @@ class MetaIon(type):
             'is_empty',
             'to',
             'shape',
+            'get',
             'update',
         )
 
@@ -63,7 +64,7 @@ class Ion(metaclass=MetaIon):
 
         Raises:
             TypeError, when a key is not a string
-            ValueError, when a key is a defined attribute or method
+            AttributeError, when a key is a defined attribute or method
         '''
 
         if copy:
@@ -80,7 +81,7 @@ class Ion(metaclass=MetaIon):
                     # with defined attributes or methods.
                     # Reserved keys are defined in the metaclass.
                     if k in Ion.reserved_keys:
-                        raise ValueError(
+                        raise AttributeError(
                             'Please rename your key \'{}\''.format(k),
                             ' as it is reserved.'
                         )
@@ -94,7 +95,7 @@ class Ion(metaclass=MetaIon):
         self,
         key: str
     ) -> bool:
-        '''Support \'in\' operator.
+        '''Support \'in\' operator in conditional statement.
         '''
 
         if isinstance(key, str):
@@ -152,6 +153,15 @@ class Ion(metaclass=MetaIon):
                 'Only support value assignment of Ion object, '
                 'but got type {}.'.format(type(value))
             )
+
+    def __iter__(self) -> Iterator:
+        '''Support iterating operations
+
+        Iterate over attributes in the object.
+        '''
+
+        for k in self.__dict__.keys():
+            yield k
 
     def __iadd__(
         self,
@@ -310,6 +320,16 @@ class Ion(metaclass=MetaIon):
                 shape_dict[k] = v.shape
         return shape_dict
 
+    def get(
+        self,
+        key: str,
+        default: Optional[Any] = None
+    ) -> Any:
+        '''Get value from key with default safe guard.
+        '''
+
+        return self.__dict__.get(key, default=default)
+
     def update(
         self,
         other: Optional[Union[Dict[str, Any], 'Ion']] = None,
@@ -337,6 +357,33 @@ class Ion(metaclass=MetaIon):
                 setattr(self, k, v)
         if kwargs:
             self.update(kwargs)
+
+
+def extend_space(
+    value: Any,
+    extend_size: int = 1,
+) -> Any:
+    '''Extend value-like space.
+
+    Args:
+        value: A
+        extend_size:
+    '''
+
+    if isinstance(value, (Number, np.number)):
+        return np.zeros(shape=extend_size, dtype=type(value))
+    elif isinstance(value, np.ndarray):
+        shape = (extend_size, *value.shape)
+        return np.zeros(shape=shape, dtype=value.dtype)
+    elif isinstance(value, torch.Tensor):
+        shape = (extend_size, *value.size())
+        return torch.zeros(size=shape, device=value.device, dtype=value.dtype)
+    elif isinstance(value, Ion):
+        new_ion = Ion()
+        for k, v in value.items:
+            new_ion[k] = extend_space(value=v)
+    else:
+        return np.full(shape=extend_size, fill_value=None, dtype=np.object)
 
 
 if __name__ == '__main__':

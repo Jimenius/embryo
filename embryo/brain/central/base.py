@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from time import sleep
 
 
-class Agent(ABC):
+class Central(ABC):
     '''General agent super class
     '''
 

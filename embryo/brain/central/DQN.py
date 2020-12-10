@@ -8,14 +8,16 @@ import os
 import torch
 from typing import Optional, Union
 
-from embryo.brain.central.base import Agent
+from embryo.brain.central.base import Central
 from embryo.brain.memory import SequentialMemory
 from embryo.brain.central.models import QNet
 from embryo.utils.explorations import Epsilon_Greedy
 from embryo.utils.torch_utils import to_tensor
+from . import CENTRAL_REGISTRY
 
 
-class DQNAgent(Agent):
+@CENTRAL_REGISTRY.register()
+class DQNCentral(Central):
     '''Deep Q-Learning agent
 
     Reference:
