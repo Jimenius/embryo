@@ -1,6 +1,6 @@
-'''Sequential memory for experience replay
+'''Linked memory for experience replay
 
-Created by Minhui Li on December 9, 2020
+Created by Minhui Li on January 7, 2021
 '''
 
 
@@ -15,14 +15,16 @@ from embryo.ion import Ion, extend_space
 
 
 @MEMORY_REGISTRY.register()
-class SequentialMemory(Memory):
-    '''Sequential memory
+class LinkedMemory(Memory):
+    '''Linked memory
+
+    Slots are linked by prev and next attributes.
+    The linkage relationship is the same as that in an episode
     '''
 
     def __init__(
         self,
         max_size: int = 1,
-        stack_num: int = 1,
     ) -> None:
         '''Initialization method
 
@@ -32,16 +34,7 @@ class SequentialMemory(Memory):
         '''
 
         super().__init__(max_size=max_size)
-        self.stack_num = stack_num
-
         self.reset()
-
-    def reset(self) -> None:
-        '''Reset buffer by setting current size and index to 0.
-        '''
-        
-        super().reset()
-        self._stack_valid_indice = [] if self.stack_num > 1 else None
 
     def add(
         self,
@@ -55,14 +48,19 @@ class SequentialMemory(Memory):
 
         Returns:
             Index in the memory added.
+
+        Raises:
+            KeyError: 
         '''
 
         # All element added should contain the same keys.
 
-        if 'element' in kwargs:
-            raise ValueError(
-                'Please choose another name for element as it is reserved.'
-            )
+        for k in ('element', 'next'):
+            if k in kwargs:
+                raise KeyError(
+                    'Please choose another name for {} as it is reserved.'.format(k)
+                )
+
         if element:
             element.update(kwargs)
         else:
@@ -72,9 +70,17 @@ class SequentialMemory(Memory):
                 'Cannot add an empty element to the memory.'
             )
 
+        if 'prev' not in element:
+            raise KeyError(
+                'Linked memory requires key \'prev\' for linkage.'
+            )
+        element.update({'next': -1})
+
         if self._data.is_empty():
             for k, v in element.items:
                 self._data[k] = extend_space(value=v, extend_size=self.max_size)
+            self._data.prev -= 1
+            self._data.next -= 1
         else:
             # Check if there is an unexpected key
             for k in element:
@@ -83,22 +89,16 @@ class SequentialMemory(Memory):
                         'All element added should contain the same keys, ',
                         'but got a new key: {}.'.format(k)
                     )
+            original_next_index = self._data.next[self._index]
+            # If the slot has data originally,
+            # set the prev of the original next to -1
+            # as data replacement.
+            if original_next_index >= 0:
+                self._data.prev[original_next_index] = -1
             self._data[self._index] = element
-
-        if self._stack_valid_indice is not None and 'done' in self._data:
-            valid = sum(
-                self._data.done[i]
-                for i in range(self._index - self.stack_num + 1, self._index)
-            ) == 0 and self._size >= self.stack_num - 1
-            if valid and self._index not in self._stack_valid_indice:
-                self._stack_valid_indice.append(self._index)
-            elif not valid and self._index in self._stack_valid_indice:
-                self._stack_valid_indice.remove(self._index)
-            # Also invalidate element away 
-            index: int = (self._index + self.stack_num - 1) % self._maxsize
-            if index in self._stack_valid_indice:
-                self._stack_valid_indice.remove(index)
-
+        if element['prev'] >= 0:
+            self._data.next[element['prev']] = self._index
+        
         index_inserted = self._index
         if self.max_size > 0:
             self._size = min(self._size + 1, self.max_size)
@@ -121,33 +121,29 @@ class SequentialMemory(Memory):
         '''
 
         if batch_size > 0:
-            if self._stack_valid_indice is not None:
-                valid_indice = self._stack_valid_indice
-            else:
-                valid_indice = self.size
-            indice = np.random.choice(valid_indice, batch_size)
+            indice = np.random.choice(self.size, batch_size)
         elif batch_size < 0:
             raise ValueError(
                 'Undefined negative batch size ',
                 '= {}.'.format(batch_size)
             )
         else:
-            # Batch size = 0, return all data in the memory
-            if self._stack_valid_indice:
-                indice = np.array(self._stack_valid_indice)
-            else:
-                indice = np.concatenate([
-                    np.arange(self._index, self.size),
-                    np.arange(self._index),
-                ])
+            indice = np.concatenate([
+                np.arange(self._index, self.size),
+                np.arange(self._index),
+            ])
 
         return self[indice], indice
 
 
 if __name__ == '__main__':
-    m = SequentialMemory(max_size=15)
+    m = LinkedMemory(max_size=15)
+    prev = [-1, -1]
     for i in range(20):
-        m.add(obs=i,done=i % 4,obsnext=i+1)
+        prev[0] = m.add(obs=i,done=i % 4,prev=prev[0])
+        prev[1] = m.add(obs=i * 2,done=i % 3,prev=prev[1])
     print(m.obs)
     print(m.done)
-    print(m.obsnext)
+    print(m.prev)
+    print(m.next)
+    print(m)

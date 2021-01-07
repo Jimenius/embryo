@@ -6,8 +6,10 @@ Created by Minhui Li on December 8, 2020
 
 from abc import ABC, abstractmethod
 
-from embryo.brain.central import Central
-from embryo.brain.memory import Memory
+from yacs import CfgNode
+
+from embryo.brain.central import Central, CENTRAL_REGISTRY
+from embryo.brain.memory import Memory, MEMORY_REGISTRY
 from embryo.ion import Ion
 from embryo.limbs import Limbs
 
@@ -18,68 +20,45 @@ class Agent(ABC):
 
     def __init__(
         self,
-        central: Central,
-        memory: Memory,
-        limbs: Limbs,
-        writer,
-        batch_size: int = 0,
-        step_per_epoch: int = 0,
-        interact_per_step: int = 0
+        config: CfgNode,
+        env,
     ) -> None:
         '''Initialization method
 
         Args:
-            central: Training method
-            memory: Replay memory
-            limbs: Policy interaction
-            writer:
-            batch_size: Batch size
-            step_per_epoch: Step per epoch
-            interact_per_step: Interaction per step
+            config: Configuration
+        '''
+        
+        self.config = config
+        self.build()
+
+    def build(
+        self,
+    ):
+        '''Parse configuration to setup the agent.
         '''
 
-        self.env_step = 0
-        self.gradient_step = 0
-        self.best_epoch = 0
-        self.best_reward = -float('inf')
+        self.central = CENTRAL_REGISTRY.get(self.config.CENTRAL.NAME)()
+        self.memory = MEMORY_REGISTRY.get(self.config.MEMORY.NAME)(
+            max_size=self.config.MEMORY.SIZE,
+            stack_num=self.config.MEMORY.STACK,
+        )
+        self.limbs = Limbs(
+            env=env,
+            central=self.central,
+            memory=self.memory,
+        )
 
-        self.central = central
-        self.limbs = limbs
-        self.memory = memory
-        self.step_per_epoch = step_per_epoch
-        self.interact_per_step = interact_per_step
-
-    def __call__(
+    def learn(
         self,
-        max_epoch: int,
+        env,
     ):
         '''
-
-        Args:
-            max_epoch: Maximum training epoch
         '''
-        for epoch in range(max_epoch):
-            for step in range(self.step_per_epoch):
-                result: Ion = self.limbs.interact(num_step=self.interact_per_step)
-                self.env_step += 1
-                if writer:
-                    pass
-                losses = self.central.learn()
-                self.gradient_step += 1
-                for k in losses.keys():
-                    pass
-            result: Ion = test()
 
-
-class OnPolicyAgent(Agent):
-    '''On-policy agent
-    '''
-
-    pass
-
-
-class OffPolicyAgent(Agent):
-    '''Off-policy agent
-    '''
-
-    pass
+    def interact(
+        self,
+        env,
+    ):
+        '''
+        '''

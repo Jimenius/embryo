@@ -13,6 +13,11 @@ import numpy as np
 import torch
 
 
+__all__ = [
+    'Ion',
+]
+
+
 def _is_number(
     value: Any
 ) -> bool:
@@ -253,6 +258,25 @@ class Ion(metaclass=MetaIon):
 
         return deepcopy(self).__itruediv__(other)
 
+    def __repr__(self) -> str:
+        '''Support
+        '''
+
+        rep_str = 'Ion('
+        contents: List[str] = []
+        for k, v in self.items:
+            if isinstance(v, (np.ndarray, torch.Tensor)):
+                v_s = '{}({})'.format(v.__class__.__name__, v.shape)
+            elif isinstance(v, (list, tuple, dict)):
+                v_s = '{}({})'.format(v.__class__.__name__, len(v))
+            else:
+                v_s = v
+            element = '{}: {}'.format(k, v_s)
+            contents.append(element)
+        rep_str += ', '.join(contents)
+        rep_str += ')'
+        return rep_str
+
     @property
     def items(self) -> 'dict_items':
 
@@ -398,3 +422,11 @@ if __name__ == '__main__':
     print(i1.is_empty(), 'Should be False')
     print(i2.is_empty(), 'Should be True')
     print('a' in i1, 'Should be True')
+
+    i3 = Ion(prev=np.arange(5))
+    i3.prev[2] = 0
+    print('{}, should be 0.'.format(i3.prev[2]))
+    print(i3)
+
+    i4 = Ion(next=[4,3,2,1], a=Ion(b=Ion(c=torch.zeros(3))))
+    print(i4)

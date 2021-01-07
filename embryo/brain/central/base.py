@@ -113,3 +113,16 @@ class Central(ABC):
                 print(logtxt)
         self.env.close()
         return avg_reward
+
+
+def _compute_episodic_return(
+    reward,
+) -> None:
+    pass
+
+def _compute_nstep_return(
+    reward,
+    target_q,
+    num_step: int = 1,
+    gamma: float = 1.,
+) -> None:

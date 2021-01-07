@@ -10,18 +10,22 @@ from typing import Callable, Dict, Optional, Union
 import gym
 import numpy as np
 
-from embryo.brain.central.base import Central
+from embryo.brain.central import Central
+from embryo.brain.memory import Memory
 from embryo.ion import Ion
 
 
 class Limbs:
     '''Limbs connect the central policy and the environment.
+
+    Limbs receive order from the central, take a step in the environment, and adds the interaction into the memory.
     '''
 
     def __init__(
         self,
         env: gym.Env,
         central: Central,
+        memory: Memory,
         preprocess: Optional[Callable[Ion]] = None,
         postprocess: Optional[Callable[Ion]] = None,
     ) -> None:
@@ -36,6 +40,7 @@ class Limbs:
         self.env = env
         self.env_number = len(self.env)
         self.central = central
+        self.memory = memory
         self.preprocess = preprocess
         self.postprocess = postprocess
 
@@ -83,7 +88,13 @@ class Limbs:
                 action = self.interaction.action
             obs_next, reward, done, info = self.env.step(action)
             step_counter += 1
-            self.interaction.update(obs_next=obs_next, reward=reward, done=done, info=info)
+            self.interaction.update(
+                action=action,
+                obs_next=obs_next,
+                reward=reward,
+                done=done,
+                info=info
+            )
             
             if render:
                 self.env.render()
@@ -104,6 +115,8 @@ class Limbs:
             if self.preprocess:
                 haha = self.preprocess()
                 self.interaction.update(haha)
+
+            self.memory.add(self.interaction)
             
         return {
             "n/ep": episode_count,

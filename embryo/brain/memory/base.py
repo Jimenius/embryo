@@ -5,7 +5,7 @@ Created by Minhui Li on December 9, 2020
 
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 import torch
@@ -37,6 +37,32 @@ class Memory(ABC):
                 'Attribute {} not found.'.format(key),
             )
 
+    def __getitem__(self, index: Union[int, str]) -> Any:
+        '''
+        '''
+
+        if isinstance(index, str):
+            return getattr(self._data, index)
+        elif isinstance(index, int):
+            element = Ion()
+            for k in self._data:
+                element[k] = self._data[k][index]
+            return element
+        else:
+            raise TypeError(
+                'Unsupported index type: {}'.format(type(index))
+            )
+
+    def __repr__(self) -> str:
+        '''
+        '''
+
+        rep_str = self.__class__.__name__ + '('
+        rep_str += 'max_size: {}'.format(self.max_size)
+        rep_str += ', data: {}'.format(self._data)
+        rep_str += ')'
+        return rep_str
+
     def reset(self) -> None:
         '''Reset the memory
         '''
@@ -49,7 +75,7 @@ class Memory(ABC):
     def add(
         self,
         elements: Ion,
-    ) -> None:
+    ) -> int:
         '''Add an element into the memory.
         '''
 
