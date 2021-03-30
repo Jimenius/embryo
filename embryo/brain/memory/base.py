@@ -5,7 +5,7 @@ Created by Minhui Li on December 9, 2020
 
 
 from abc import ABC, abstractmethod
-from typing import Any, Union
+from typing import Any, List, Union
 
 import numpy as np
 import torch
@@ -37,21 +37,14 @@ class Memory(ABC):
                 'Attribute {} not found.'.format(key),
             )
 
-    def __getitem__(self, index: Union[int, str]) -> Any:
-        '''
+    def __getitem__(
+        self,
+        index: Union[str, slice, int, np.integer, np.ndarray, List[int]]
+    ) -> Any:
+        '''Support self[index]
         '''
 
-        if isinstance(index, str):
-            return getattr(self._data, index)
-        elif isinstance(index, int):
-            element = Ion()
-            for k in self._data:
-                element[k] = self._data[k][index]
-            return element
-        else:
-            raise TypeError(
-                'Unsupported index type: {}'.format(type(index))
-            )
+        return self._data[index]
 
     def __repr__(self) -> str:
         '''

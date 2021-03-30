@@ -25,28 +25,21 @@ def _is_number(
     return isinstance(value, (Number, np.number))
 
 
-class MetaIon(type):
-    '''Metaclass of Ion to store meta-data of Ion
-    '''
-
-    def __init__(self, name, bases, namespace, **kwargs):
-
-        self.reserved_keys = (
-            'items',
-            'is_empty',
-            'to',
-            'shape',
-            'get',
-            'update',
-        )
-
-
-class Ion(metaclass=MetaIon):
+class Ion:
     '''The internal data structure in embryo.
 
     Ion represents biological signal, is intrinsically a (recursive) dictionary
     of object that can be either numpy array, torch tensor, or ion themself.
     '''
+
+    reserved_keys = (
+        'items',
+        'is_empty',
+        'to',
+        'shape',
+        'get',
+        'update',
+    )
 
     def __init__(
         self,
@@ -82,9 +75,7 @@ class Ion(metaclass=MetaIon):
                             'Keys should all be string, ',
                             'but got {}'.format(type(k))
                         )
-                    # Avoid key collision
-                    # with defined attributes or methods.
-                    # Reserved keys are defined in the metaclass.
+                    # Avoid key collision with defined attributes or methods.
                     if k in Ion.reserved_keys:
                         raise AttributeError(
                             'Please rename your key \'{}\''.format(k),
@@ -147,11 +138,15 @@ class Ion(metaclass=MetaIon):
         # Dict assignment
         if isinstance(index, str):
             setattr(self, index, value)
-            return
-
-        if isinstance(value, Ion):
+        elif isinstance(value, Ion):
             for k in self.__dict__.keys():
                 if k in value:
+                    if isinstance(self.__dict__[k], Ion):
+                        raise TypeError(
+                            'Indexing too deep.'
+                        )
+                    # Only keys already defined are updated.
+                    # Keys undefined are discarded.
                     self.__dict__[k][index] = value[k]
         else:
             raise ValueError(
@@ -282,6 +277,14 @@ class Ion(metaclass=MetaIon):
 
         return self.__dict__.items()
 
+    def copy(
+        self,
+    ) -> 'Ion':
+        '''
+        '''
+
+        return deepcopy(self)
+
     def is_empty(
         self,
     ) -> bool:
@@ -298,7 +301,7 @@ class Ion(metaclass=MetaIon):
         ctype: str,
         dtype: Optional[Union[torch.dtype, np.dtype]] = None,
         device: Optional[Union[str, int, torch.device]] = None,
-    ) -> None:
+    ) -> 'Ion':
         '''Convert internal data to specific type
 
         Args:
@@ -316,24 +319,24 @@ class Ion(metaclass=MetaIon):
             else:
                 if ctype == 'torch':
                     # If v is a numpy array, convert it to torch tensor first.
-                    if isinstance(v, np.ndarray):
+                    if isinstance(v, np.ndarray) and v.dtype != np.object:
                         v = torch.from_numpy(v)
                     # Convert device and dtype attribute.
                     # Ignore values other than torch tensor.
                     if isinstance(v, torch.Tensor):
                         v = v.to(device=device, dtype=dtype)
+                    setattr(self, k, v)
                 elif ctype == 'numpy':
                     # If v is a torch tensor, convert it to numpy array first.
                     if isinstance(v, torch.Tensor):
-                        v = v.detach().to(device='cpu').numpy()
-                    # Convert dtype, ignore values other than numpy array.
-                    if isinstance(v, np.ndarray):
-                        setattr(self, k, v.astype(dtype))
+                        setattr(self, k, v.detach().to(device='cpu').numpy())
                 else:
                     raise ValueError(
                         'Only class type torch and numpy are supported, ',
                         'but got {}.'.format(ctype)
                     )
+
+        return self
         
     @property
     def shape(self) -> Dict[str, Any]:
@@ -394,7 +397,7 @@ def extend_space(
         extend_size:
     '''
 
-    if isinstance(value, (Number, np.number)):
+    if isinstance(value, (Number, np.number, bool, np.bool_)):
         return np.zeros(shape=extend_size, dtype=type(value))
     elif isinstance(value, np.ndarray):
         shape = (extend_size, *value.shape)
@@ -422,10 +425,13 @@ if __name__ == '__main__':
     print(i1.is_empty(), 'Should be False')
     print(i2.is_empty(), 'Should be True')
     print('a' in i1, 'Should be True')
+    indice = [True, False]
+    i1[indice] = Ion(a=np.array([1,1]))
+    print(i1.a, 'Should be [[1,1],[2,2]]')
 
     i3 = Ion(prev=np.arange(5))
     i3.prev[2] = 0
-    print('{}, should be 0.'.format(i3.prev[2]))
+    print('{} should be 0'.format(i3.prev[2]))
     print(i3)
 
     i4 = Ion(next=[4,3,2,1], a=Ion(b=Ion(c=torch.zeros(3))))

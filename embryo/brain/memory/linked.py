@@ -4,7 +4,7 @@ Created by Minhui Li on January 7, 2021
 '''
 
 
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -18,7 +18,7 @@ from embryo.ion import Ion, extend_space
 class LinkedMemory(Memory):
     '''Linked memory
 
-    Slots are linked by prev and next attributes.
+    Slots are linked by prev and next attributes, -1 for none.
     The linkage relationship is the same as that in an episode
     '''
 
@@ -36,6 +36,33 @@ class LinkedMemory(Memory):
         super().__init__(max_size=max_size)
         self.reset()
 
+    def __setitem__(
+        self,
+        index: Union[slice, int, np.integer, np.ndarray, List[int]],
+        value: Ion
+    ) -> None:
+        '''Support value assignment to self[index]
+        '''
+
+        if isinstance(index, str):
+            raise TypeError(
+                'Please use attribute.'
+            )
+
+        if not isinstance(value, Ion):
+            raise TypeError(
+                'SHould assign an Ion object to the memory.'
+            )
+
+        for k in value:
+            if isinstance(index, (list, np.ndarray)) and len(index) != len(value[k]):
+                raise ValueError(
+                    'Length mismatch of indice and value.'
+                )
+            if k not in self._data:
+                self._data[k] = extend_space(value=value[k], extend_size=self.max_size)
+            self._data[k][index] = value[k]
+
     def add(
         self,
         element: Optional[Ion] = None,
@@ -50,10 +77,10 @@ class LinkedMemory(Memory):
             Index in the memory added.
 
         Raises:
-            KeyError: 
+            KeyError: Reserved key names chosen
         '''
 
-        # All element added should contain the same keys.
+        # All elements added should contain the same keys.
 
         for k in ('element', 'next'):
             if k in kwargs:
@@ -91,8 +118,7 @@ class LinkedMemory(Memory):
                     )
             original_next_index = self._data.next[self._index]
             # If the slot has data originally,
-            # set the prev of the original next to -1
-            # as data replacement.
+            # set the prev of the original next to -1 as data replacement.
             if original_next_index >= 0:
                 self._data.prev[original_next_index] = -1
             self._data[self._index] = element
@@ -121,7 +147,7 @@ class LinkedMemory(Memory):
         '''
 
         if batch_size > 0:
-            indice = np.random.choice(self.size, batch_size)
+            indice = np.random.choice(self._size, batch_size)
         elif batch_size < 0:
             raise ValueError(
                 'Undefined negative batch size ',
@@ -129,7 +155,7 @@ class LinkedMemory(Memory):
             )
         else:
             indice = np.concatenate([
-                np.arange(self._index, self.size),
+                np.arange(self._index, self._size),
                 np.arange(self._index),
             ])
 
@@ -147,3 +173,8 @@ if __name__ == '__main__':
     print(m.prev)
     print(m.next)
     print(m)
+    print(m[np.array([3, 5, 7])])
+    print(m[np.array([4,10,14])])
+    batch = m[np.array([4,10,14])].copy()
+    batch[0] = m[3]
+    print(batch)

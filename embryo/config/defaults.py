@@ -1,4 +1,4 @@
-from yacs import CfgNode
+from yacs.config import CfgNode
 
 DEFAULT = CfgNode()
 
