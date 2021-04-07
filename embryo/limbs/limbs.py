@@ -34,12 +34,14 @@ class Limbs:
 
         Args:
             env: Environment
-            brain:
+            central: central for control
+            memory: Memory for experience replay
             preprocess: observation preprocess function
+            postprocess: action postprocess function
         '''
 
         self.env = env
-        self.env_number = self.env.num_envs
+        self.env_number: int = self.env.num_envs
         self.central = central
         self.memory = memory
         self.preprocess = preprocess
@@ -57,6 +59,9 @@ class Limbs:
         self,
     ) -> None:
         '''Reset associated attributes
+
+        Reset the environment and add the initial observation to the temporary container.
+        Reset the reward accumulator.
         '''
 
         self.interaction = Ion()
@@ -64,6 +69,7 @@ class Limbs:
         if self.preprocess:
             obs = self.preprocess(obs)
         self.interaction.update(observation=obs)
+        self.cumulative_reward = np.zeros(self.env_number)
 
     def interact(
         self,
@@ -79,15 +85,8 @@ class Limbs:
             render: Visualization time gap
 
         Raises:
-            ValueError:
+            ValueError: Wrong step/episode number for break condition 
         '''
-
-        step_counter: int = 0
-        episode_counter = 0
-        start_time = time.time()
-        # Problematic in train
-        reward_collection = []
-        cumulative_reward = np.zeros(self.env_number)
 
         if num_episode < 0 or num_step < 0:
             raise ValueError(
@@ -102,6 +101,11 @@ class Limbs:
                 'Number of episodes {}'.format(num_episode),
             )
 
+        step_counter: int = 0
+        episode_counter = 0
+        start_time = time.time()
+        reward_collection = []
+
         while num_episode and episode_counter < num_episode \
             or num_step and step_counter < num_step:
             with torch.no_grad():
@@ -111,27 +115,27 @@ class Limbs:
             obs_next, reward, done, info = self.env.step(action)
             step_counter += self.env_number
             episode_counter += sum(done)
-            cumulative_reward += reward
-            self.interaction.update(
-                action=action,
-                reward=reward,
-                done=done,
-                info=info,
-            )
+            self.cumulative_reward += reward
+
+            if self.memory:
+                self.interaction.update(
+                    action=action,
+                    reward=reward,
+                    done=done,
+                    info=info,
+                )
+                self.memorize()
 
             # Record cumulative reward in an episode.
             if done.any():
                 indice = np.where(done)
-                for r in cumulative_reward[indice]:
+                for r in self.cumulative_reward[indice]:
                     reward_collection.append(r)
-                cumulative_reward[indice] = 0.
+                self.cumulative_reward[indice] = 0.
             
             if render:
                 self.env.render()
                 time.sleep(render)
-
-            if self.memory:
-                self.memorize()
 
             if self.preprocess:
                 obs_next = self.preprocess(obs_next)
@@ -202,3 +206,23 @@ class OffPolicyLimbs(Limbs):
             )
 
         self.prev[self.interaction.done] = -1
+
+
+if __name__ == '__main__':
+    import gym
+    from embryo.brain.central.SAC import SACCentral
+    from embryo.brain.memory.linked import LinkedMemory
+    env = gym.vector.make('MountainCarContinuous-v0', num_envs=5)
+    class c(SACCentral):
+        def control(self, i):
+            return Ion(action=np.array(env.action_space.sample()))
+    cent = c(network=None, gamma=0.99)
+    mem = LinkedMemory(max_size=50000)
+    limbs = OffPolicyLimbs(env, cent, mem)
+    limbs.reset()
+    for _ in range(4):
+        res = limbs.interact(num_step=5)
+    # print(mem.observation[:10])
+    print(mem.reward[:10])
+    print(mem.prev[:10])
+    print(mem.next[:10])   

@@ -4,6 +4,7 @@ Created by Minhui Li on March 17, 2021
 '''
 
 
+from copy import deepcopy
 from typing import Dict, Optional, Union
 
 import numpy as np
@@ -61,15 +62,16 @@ class SACCentral(Central):
         self.Actor_optimizer = torch.optim.Adam(self.Actor.parameters(), lr=3e-4)
         pre = ProcessNet(3)
         self.Critic1 = Critic(pre).to(self.device)
-        self.CriticTarget1 = Critic(pre).to(self.device)
+        self.CriticTarget1 = deepcopy(self.Critic1)
         self.CriticOptimizer1 = torch.optim.Adam(self.Critic1.parameters(), lr=3e-4)
         pre = ProcessNet(3)
         self.Critic2 = Critic(pre).to(self.device)
-        self.CriticTarget2 = Critic(pre).to(self.device)
+        self.CriticTarget2 = deepcopy(self.Critic2)
         self.CriticOptimizer2 = torch.optim.Adam(self.Critic2.parameters(), lr=3e-4)
-        self._hard_update_target()
         self.CriticTarget1.eval()
         self.CriticTarget2.eval()
+
+        self.training = True
 
         self.action_prior = action_prior
         a_low = -1.
@@ -144,6 +146,7 @@ class SACCentral(Central):
         self.Actor.train()
         self.Critic1.train()
         self.Critic2.train()
+        self.training = True
 
     def eval(
         self,
@@ -151,6 +154,7 @@ class SACCentral(Central):
         self.Actor.eval()
         self.Critic1.eval()
         self.Critic2.eval()
+        self.training = False
 
     def get_target_value(
         self,
@@ -167,14 +171,11 @@ class SACCentral(Central):
             observation: torch.Tensor = batch.observation
             action: torch.Tensor = control.action
             log_prob: torch.Tensor = control.log_prob
-            # q_target = torch.min(
-            #     self.CriticTarget1(observation, action),
-            #     self.CriticTarget2(observation, action),
-            # ) - self.alpha * log_prob
             q1 = self.CriticTarget1(observation, action)
             q2 = self.CriticTarget2(observation, action)
             q_target = torch.min(q1, q2) - self.alpha * log_prob
-            print(self.gradient_step * 5, q1.mean().item(), q2.mean().item(), q_target.mean().item())
+            q_target = q_target.squeeze(-1)
+
         return Ion(value=q_target)
 
     def update(
@@ -213,9 +214,6 @@ class SACCentral(Central):
         log_prob: torch.Tensor = control.log_prob
         q1 = self.Critic1(observation, action).flatten()
         q2 = self.Critic2(observation, action).flatten()
-        ###
-        print(self.gradient_step * 5, returns.mean().item(), log_prob.mean().item(), q1.mean().item())
-        ###
 
         actor_loss = torch.mean(
             self.alpha * log_prob.flatten() - \
@@ -270,7 +268,12 @@ class SACCentral(Central):
         observation: torch.Tensor = batch.observation
         action_parameter = self.Actor(observation)
         dist = Independent(self.action_prior(*action_parameter), 1)
-        x = dist.rsample()
+        if self.training:
+            # Random sample an action from the prior distribution when training.
+            x = dist.rsample()
+        else:
+            # When testing, take the mean value instead of random sampling.
+            x = action_parameter[0]
         log_prob = dist.log_prob(x).unsqueeze(-1)
         if True:
             y = torch.tanh(x)
@@ -281,4 +284,8 @@ class SACCentral(Central):
         else:
             action = x
 
-        return Ion(action=action, log_prob=log_prob)
+        return Ion(
+            action=action,
+            log_prob=log_prob,
+            parameters=action_parameter,
+        )

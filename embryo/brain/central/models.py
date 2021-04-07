@@ -42,7 +42,10 @@ class Actor(nn.Module):
     def forward(self, x):
         x = self.pre(x)
         mu = self.mu(x)
-        sigma = torch.exp(self.sigma)
+        shape = [1] * len(mu.shape)
+        shape[1] = -1
+        sigma = torch.exp(self.sigma.view(shape) + torch.zeros_like(mu))
+        # sigma = torch.exp(self.sigma)
         return mu, sigma
 
 class Critic(nn.Module):

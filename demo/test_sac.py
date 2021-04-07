@@ -5,6 +5,7 @@ from embryo.brain.memory.linked import LinkedMemory
 from embryo.limbs.limbs import OffPolicyLimbs
 from embryo.utils.log import setup
 import numpy as np
+from tianshou.exploration import OUNoise
 import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
@@ -48,20 +49,13 @@ def main():
     
     train_fn = None
     test_fn = None
-    # def train_fn(epoch, env_step):
-    #     if env_step <= 100000:
-    #         central.set_explore_rate(0.5)
-    #     elif env_step <= 500000:
-    #         eps = 0.5 - (env_step - 100000) / 1600000
-    #         central.set_explore_rate(eps)
-    #     else:
-    #         central.set_explore_rate(0.25)
 
-    # def test_fn(epoch, env_step):
-    #     central.set_explore_rate(0.)
-
-    # def noise(action):
-    #     return action + np.random.normal(0, 0.1, 1)
+    ou = OUNoise(0., 1.2)
+    def noise(action):
+        a = action + ou(action.shape)
+        # a = action
+        a = np.clip(a, -1., 1.)
+        return a
 
     save_fn = None
     resume = ''
@@ -72,7 +66,7 @@ def main():
     torch.manual_seed(seed)
     central = SACCentral(network=None, target_update_frequency=target_update_freq, gamma=gamma)
     memory = LinkedMemory(max_size=memory_size)
-    train_limbs = OffPolicyLimbs(env=train_env, central=central, memory=memory)
+    train_limbs = OffPolicyLimbs(env=train_env, central=central, memory=memory, postprocess=noise)
     test_limbs = OffPolicyLimbs(env=test_env, central=central)
     if resume:
         central.load(resume)
@@ -83,7 +77,7 @@ def main():
 
     # offpolicy.py
     env_step, gradient_step = 0, 0
-    best_epoch, best_reward, best_reward_std = -1, -1.0, 0.0
+    best_epoch, best_reward, best_reward_std = -1, 0., 0.
 
     for epoch in range(1, max_epoch + 1):
         central.train()
@@ -116,8 +110,6 @@ def main():
                         )
 
         result = test_episode(central, test_limbs, env_step, writer, num_episode=100, test_fn=test_fn)
-        print(central.alpha.item())
-        print(loss)
 
         if best_epoch == -1 or best_reward <= result['reward']:
             best_epoch = epoch

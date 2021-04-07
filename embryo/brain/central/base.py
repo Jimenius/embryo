@@ -185,38 +185,38 @@ def compute_nstep_return(
     batch_size = len(indice)
     finish_step = np.full(batch_size, fill_value=n, dtype=int)
     gamma_factor = 1.
-    # returns_est: np.ndarray = temp_batch.reward.copy()
-    # for i in range(1, n):
-    #     # 1. done: R = R + \gamma ^ i * r, finish = i
-    #     # 2. .next = -1: finish = i
-    #     # 3. Otherwise: R = R + \gamma ^ i * r, go to next
-    #     gamma_factor *= gamma
-    #     # changing_indice = finish_step > i
-    #     # finish_indice = changing_indice and (temp_batch.done or temp_batch.next < 0)
-    #     finish_indice = finish_step > i and (temp_batch.done or temp_batch.next < 0)
-    #     temp_r = gamma_factor * temp_batch.reward
-    #     next_indice = np.where(not finish_indice)
-    #     temp_batch[~finish_indice] = memory[next_indice]
-    #     finish_step[finish_indice] = i
-    #     returns_est += temp_r
-
     returns_est = np.zeros(batch_size, dtype=np.float32)
+
     for i in range(n):
-        clip_cond = temp_batch.next < 0
-        finish_cond = temp_batch.done | clip_cond
+        # 1. done & finish_step >= i: R = R + \gamma ^ i * r, finish = i
+        # 2. done & finish_step < i: R = R, finish = finish
+        # 3. ~done & .next = -1 & finish_step >= i: R = R, finish = i
+        # 4. ~done & .next = -1 & finish_step < i: R = R, finish = finish
+        # 5. Otherwise (~done & .next >= 0): R = R + \gamma ^ i * r, finish = finish, go to next
+
+        done = temp_batch.done
+        finished = finish_step < i
+        step = temp_batch.next >= 0
+        # Condition to go to the next step
+        next_cond = ~done & step
+        # Condition to add reward to the return estimation
+        reward_cond = done & ~finished | next_cond
+        # Condition to finish calculation
+        finish_cond = ~finished & (~(done | step) | done)
+
         temp_reward = gamma_factor * temp_batch.reward
-        returns_est[~clip_cond] += temp_reward[~clip_cond]
+        returns_est[reward_cond] += temp_reward[reward_cond]
         gamma_factor *= gamma
-        temp_batch[~finish_cond] = memory[temp_batch.next[~finish_cond]]
+        temp_batch[next_cond] = memory[temp_batch.next[next_cond]]
+        finish_step[finish_cond] = i
     
-    # R = R + \gamma ^ n * max(Q_target), if not done
+    # R = R + \gamma ^ n * Q_target, if not done
     if not temp_batch.done.all():
         observations = Ion(
             observation=temp_batch.observation[~temp_batch.done],
         )
         q_est = target_fn(observations).to(ctype='numpy').value
-        returns_est[~temp_batch.done] += gamma ** finish_step[~temp_batch.done] * q_est.max(axis=-1)
-        # returns_est[~temp_batch.done] += gamma ** finish_step[~temp_batch.done] * q_est.flatten()
+        returns_est[~temp_batch.done] += gamma ** finish_step[~temp_batch.done] * q_est
 
 
     # observations  =Ion(
@@ -238,13 +238,15 @@ if __name__ == '__main__':
     for i in range(20):
         prev[0] = m.add(observation=i,reward=1,done=i % 5 == 0,prev=prev[0])
         prev[1] = m.add(observation=i * 2,reward=2,done=i % 3 == 0,prev=prev[1])
+    m.done[7] = False
+    print('prev', m.prev)
     print('obs', m.observation)
     print('reward', m.reward)
     print('done', m.done)
     print('next', m.next)
     target_fn = lambda ion: Ion(value=ion.observation+1)
-    indice = [3, 7, 10]
+    indice = list(range(15))
     num_step = 3
     print(m[indice])
-    b = compute_nstep_return(memory=m, indice=indice, target_fn=target_fn, n=num_step, gamma = 1.)
+    b = compute_nstep_return(memory=m, indice=indice, target_fn=target_fn, n=num_step, gamma = 0.1)
     print('returns', b.returns)

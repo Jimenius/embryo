@@ -108,20 +108,20 @@ class LinkedMemory(Memory):
                 self._data[k] = extend_space(value=v, extend_size=self.max_size)
             self._data.prev -= 1
             self._data.next -= 1
-        else:
-            # Check if there is an unexpected key
-            for k in element:
-                if k not in self._data:
-                    raise KeyError(
-                        'All element added should contain the same keys, ',
-                        'but got a new key: {}.'.format(k)
-                    )
-            original_next_index = self._data.next[self._index]
-            # If the slot has data originally,
-            # set the prev of the original next to -1 as data replacement.
-            if original_next_index >= 0:
-                self._data.prev[original_next_index] = -1
-            self._data[self._index] = element
+
+        # Check if there is an unexpected key
+        for k in element:
+            if k not in self._data:
+                raise KeyError(
+                    'All element added should contain the same keys, ',
+                    'but got a new key: {}.'.format(k)
+                )
+        original_next_index = self._data.next[self._index]
+        # If the slot has data originally,
+        # set the prev of the original next to -1 as data replacement.
+        if original_next_index >= 0:
+            self._data.prev[original_next_index] = -1
+        self._data[self._index] = element
         if element['prev'] >= 0:
             self._data.next[element['prev']] = self._index
         
@@ -144,6 +144,9 @@ class LinkedMemory(Memory):
 
         Args:
             batch_size: Batch size
+
+        Raises:
+            ValueError: Negative batch size
         '''
 
         if batch_size > 0:
