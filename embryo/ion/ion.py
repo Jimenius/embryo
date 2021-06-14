@@ -253,6 +253,23 @@ class Ion:
 
         return deepcopy(self).__itruediv__(other)
 
+    def __getstate__(self) -> Dict[str, Any]:
+        '''Pickling interface
+        '''
+
+        state = {}
+        for k, v in self.items:
+            if isinstance(v, Ion):
+                v = v.__getstate__()
+            state[k] = v
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        '''Unpickling interface
+        '''
+
+        self.__init__(**state)
+
     def __repr__(self) -> str:
         '''Support
         '''

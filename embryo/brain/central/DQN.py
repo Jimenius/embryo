@@ -4,11 +4,13 @@ Created by Minhui Li on September 30, 2019
 '''
 
 
-import os
+from copy import deepcopy
 from typing import Dict, Optional, Union
 
+from gym.spaces import Space
 import numpy as np
 import torch
+from yacs.config import CfgNode
 
 from embryo.brain.central import CENTRAL_REGISTRY
 from embryo.brain.central.base import Central
@@ -30,23 +32,29 @@ class DQNCentral(Central):
 
     def __init__(
         self,
-        network = Optional[torch.nn.Module],
-        target_update_frequency: Union[int, float] = 1,
-        **kwargs
+        config: CfgNode,
+        observation_space: Space,
+        action_space: Space,
     ) -> None:
         '''Initialization method
 
         Args:
-            network:
-            target_update_frequency:
+            config: Configurations
+            observation_space: Observation space
+            action_space: Action space
         '''
 
         # Initialize parameters
-        super().__init__(**kwargs)
-        if 0 < target_update_frequency < 1:
-            self.target_update_frequency = target_update_frequency # Soft update
-        elif target_update_frequency >= 1:
-            self.target_update_frequency = int(target_update_frequency) # Hard update
+        super().__init__(
+            config=config,
+            observation_space=observation_space,
+            action_space=action_space,
+        )
+        freq = self.config.TARGET_UPDATE_FREQUENCY
+        if 0 < freq < 1:
+            self.target_update_frequency = freq # Soft update
+        elif freq >= 1:
+            self.target_update_frequency = int(freq) # Hard update
         else:
             raise ValueError(
                 'Target update should be greater than 0. ',
@@ -54,17 +62,30 @@ class DQNCentral(Central):
             )
 
         self.explore_rate = 0.
-        self.gradient_step = 0 # Gradient step counter
-        self.QNet = QNet().to(self.device)
-        self.QTargetNet = QNet().to(self.device)
+
+        net_cfg = self.config.NETWORK
+        q = net_cfg.Q
+        self.QNet = NETWORK_REGISTRY.get(q.NAME)(
+            self.observation_dim,
+            self.action_dim,
+        ).to(self.device)
+        self.QTargetNet = deepcopy(self.QNet)
         self.QTargetNet.eval()
-        self._hard_update_target()
-        self.optimizer = torch.optim.Adam(self.QNet.parameters(), lr=1e-3)
+        self.optimizer = torch.optim.Adam(
+            self.QNet.parameters(),
+            lr=q.LEARNING_RATE,
+        )
 
     def _hard_update_target(self):
+        '''Hard update target networks by direct parameter assignment.
+        '''
+
         self.QTargetNet.load_state_dict(self.QNet.state_dict())
 
     def _soft_update_target(self):
+        '''Soft update target network by interpolation.
+        '''
+
         for main, target in zip(self.QNet.parameters(), self.QTargetNet.parameters()):
             target.data.copy_(
                 target.data * (1. - self.target_update_frequency) + \
@@ -89,17 +110,22 @@ class DQNCentral(Central):
         self,
     ) -> None:
         self.QNet.train()
+        self.training = True
 
     def eval(
         self,
     ) -> None:
         self.QNet.eval()
+        self.training = False
 
     def get_target_value(
         self,
         batch: Ion,
     ) -> Ion:
-        '''
+        '''Compute target values of the observations.
+
+        Args:
+            batch: Input data, should contain keys 'observation'
         '''
 
         batch.to(
@@ -108,7 +134,7 @@ class DQNCentral(Central):
         )
         observation: torch.Tensor = batch.observation.to(torch.float)
         with torch.no_grad():
-            q_target = self.QTargetNet(observation)
+            q_target = self.QTargetNet(observation).max(dim=-1)
         return Ion(value=q_target)
 
     def update(

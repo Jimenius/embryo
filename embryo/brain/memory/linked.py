@@ -8,6 +8,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from yacs.config import CfgNode
 
 from embryo.brain.memory import MEMORY_REGISTRY
 from embryo.brain.memory.base import Memory
@@ -24,16 +25,15 @@ class LinkedMemory(Memory):
 
     def __init__(
         self,
-        max_size: int = 1,
+        config: CfgNode,
     ) -> None:
         '''Initialization method
 
         Args:
-            max_size: Maximum size of the memory, unlimited if 0
-            stack_num: Number of stack for each element
+            config: Configurations
         '''
 
-        super().__init__(max_size=max_size)
+        super().__init__(config=config)
         self.reset()
 
     def __setitem__(
@@ -124,7 +124,7 @@ class LinkedMemory(Memory):
         self._data[self._index] = element
         if element['prev'] >= 0:
             self._data.next[element['prev']] = self._index
-        
+
         index_inserted = self._index
         if self.max_size > 0:
             self._size = min(self._size + 1, self.max_size)

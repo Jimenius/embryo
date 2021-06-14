@@ -7,13 +7,15 @@ Created by Minhui Li on March 17, 2021
 from copy import deepcopy
 from typing import Dict, Optional, Union
 
+from gym.spaces import Space
 import numpy as np
 import torch
-from torch.distributions import Distribution, Independent, Normal
+from torch.distributions import Distribution, Independent
+from yacs.config import CfgNode
 
 from embryo.brain.central import CENTRAL_REGISTRY
 from embryo.brain.central.base import Central
-from embryo.brain.central.models import Actor, Critic, ProcessNet
+from embryo.brain.network import NETWORK_REGISTRY
 from embryo.ion import Ion
 
 
@@ -27,70 +29,96 @@ class SACCentral(Central):
 
     def __init__(
         self,
-        network: Optional[torch.nn.Module],
-        target_update_frequency: Union[int, float] = 1,
-        action_prior: Distribution = Normal,
-        **kwargs
+        config: CfgNode,
+        observation_space: Space,
+        action_space: Space,
     ) -> None:
         '''Initialization method
 
         Args:
-            network:
-            target_update_frequency:
-            action_prior:
+            config: Configurations
+            observation_space: Observation space
+            action_space: Action space
         '''
 
         # Initialize parameters
-        super().__init__(**kwargs)
-        if 0 < target_update_frequency < 1:
-            self.target_update_frequency = target_update_frequency # Soft update
-        elif target_update_frequency >= 1:
-            self.target_update_frequency = int(target_update_frequency) # Hard update
+        super().__init__(
+            config=config,
+            observation_space=observation_space,
+            action_space=action_space,
+        )
+        freq = self.config.TARGET_UPDATE_FREQUENCY
+        if 0 < freq < 1:
+            self.target_update_frequency = freq # Soft update
+        elif freq >= 1:
+            self.target_update_frequency = int(freq) # Hard update
         else:
             raise ValueError(
                 'Target update should be greater than 0. ',
                 '(0, 1) for soft update, [1, inf) for hard update.'
             )
 
-        self.gradient_step = 0 # Gradient step counter
-
         self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
         self.alpha = torch.exp(self.log_alpha.detach())
-        self.alphaOptimizer = torch.optim.Adam([self.log_alpha], lr=3e-4)
-        pre = ProcessNet(2)
-        self.Actor = Actor(pre).to(self.device)
-        self.Actor_optimizer = torch.optim.Adam(self.Actor.parameters(), lr=3e-4)
-        pre = ProcessNet(3)
-        self.Critic1 = Critic(pre).to(self.device)
+        alpha_lr = self.config.ALPHA_LEARNING_RATE
+        self.alphaOptimizer = torch.optim.Adam([self.log_alpha], lr=alpha_lr)
+
+        # Networks
+        net_cfg = self.config.NETWORK
+        actor = net_cfg.ACTOR
+        self.Actor: torch.nn.Module = NETWORK_REGISTRY.get(actor.NAME)(
+            self.observation_dim,
+            self.action_dim,
+        ).to(self.device)
+        self.Actor_optimizer = torch.optim.Adam(
+            self.Actor.parameters(),
+            lr=actor.LEARNING_RATE,
+        )
+        critic = net_cfg.CRITIC
+        self.Critic1 = NETWORK_REGISTRY.get(critic.NAME)(
+            self.observation_dim,
+            self.action_dim,
+        ).to(self.device)
         self.CriticTarget1 = deepcopy(self.Critic1)
-        self.CriticOptimizer1 = torch.optim.Adam(self.Critic1.parameters(), lr=3e-4)
-        pre = ProcessNet(3)
-        self.Critic2 = Critic(pre).to(self.device)
+        self.CriticOptimizer1 = torch.optim.Adam(
+            self.Critic1.parameters(),
+            lr=critic.LEARNING_RATE,
+        )
+        self.Critic2 = NETWORK_REGISTRY.get(critic.NAME)(
+            self.observation_dim,
+            self.action_dim,
+        ).to(self.device)
         self.CriticTarget2 = deepcopy(self.Critic2)
-        self.CriticOptimizer2 = torch.optim.Adam(self.Critic2.parameters(), lr=3e-4)
+        self.CriticOptimizer2 = torch.optim.Adam(
+            self.Critic2.parameters(),
+            lr=critic.LEARNING_RATE,
+        )
         self.CriticTarget1.eval()
         self.CriticTarget2.eval()
 
-        self.training = True
-
-        self.action_prior = action_prior
-        a_low = -1.
-        a_high = 1.
-        self.action_scale = (a_high - a_low) / 2.
-        self.action_bias = (a_high + a_low) / 2.
+        self.action_prior = getattr(torch.distributions, self.config.ACTION_PRIOR)
+        self.action_scale = torch.tensor(
+            (self.action_range[1] - self.action_range[0]) / 2.,
+            device=self.device,
+        )
+        self.action_bias = torch.tensor(
+            (self.action_range[1] + self.action_range[0]) / 2.,
+            device=self.device,
+        )
+        self.target_entropy = -np.prod(self.action_dim)
 
         # A small number to avoid mathematical error caused by 0.
         self._eps = np.finfo(np.float32).eps.item()
 
     def _hard_update_target(self):
-        '''
+        '''Hard update target networks by direct parameter assignment.
         '''
 
         self.CriticTarget1.load_state_dict(self.Critic1.state_dict())
         self.CriticTarget2.load_state_dict(self.Critic2.state_dict())
 
     def _soft_update_target(self):
-        '''
+        '''Soft update target network by interpolation.
         '''
 
         for main1, target1, main2, target2 in \
@@ -116,7 +144,16 @@ class SACCentral(Central):
         returns: torch.Tensor,
         idx: int = 1,
     ) -> torch.Tensor:
-        '''
+        '''Update each critic network.
+
+        Args:
+            observation: Observation tensor
+            action: Action tensor
+            returns: Return tensor
+            idx: index of the critic
+
+        Returns:
+            Mean Square Error loss
         '''
 
         if idx == 1:
@@ -132,7 +169,6 @@ class SACCentral(Central):
 
         Q = critic(observation, action).flatten()
         loss = torch.nn.MSELoss()(Q, returns.flatten())
-        # loss = (Q - returns).pow(2).mean()
         optimizer.zero_grad()
         loss.backward()
         # torch.nn.utils.clip_grad_norm_(critic.parameters(), max_norm=1.)
@@ -160,7 +196,7 @@ class SACCentral(Central):
         self,
         batch: Ion,
     ) -> Ion:
-        '''
+        '''Compute target values of the observations.
 
         Args:
             batch: Input data, should contain keys 'observation'
@@ -224,7 +260,7 @@ class SACCentral(Central):
         # torch.nn.utils.clip_grad_norm_(self.Actor.parameters(), max_norm=1.)
         self.Actor_optimizer.step()
 
-        log_prob = log_prob.detach() - 1
+        log_prob = log_prob.detach() + self.target_entropy
         alpha_loss = -(self.log_alpha * log_prob).mean()
         self.alphaOptimizer.zero_grad()
         alpha_loss.backward()
@@ -275,14 +311,12 @@ class SACCentral(Central):
             # When testing, take the mean value instead of random sampling.
             x = action_parameter[0]
         log_prob = dist.log_prob(x).unsqueeze(-1)
-        if True:
-            y = torch.tanh(x)
-            action = y * self.action_scale + self.action_bias
-            det = self.action_scale * (1. - y.pow(2))
-            # Equation 21 in the paper
-            log_prob = log_prob - torch.log(det + self._eps).sum(-1, keepdim=True)
-        else:
-            action = x
+
+        y = torch.tanh(x)
+        action = y * self.action_scale + self.action_bias
+        # Equation 21 in the paper
+        det = self.action_scale * (1. - y.pow(2))
+        log_prob = log_prob - torch.log(det + self._eps).sum(-1, keepdim=True)
 
         return Ion(
             action=action,

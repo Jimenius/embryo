@@ -5,10 +5,11 @@ Created by Minhui Li on December 9, 2020
 
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 import numpy as np
 import torch
+from yacs.config import CfgNode
 
 from embryo.ion import Ion
 
@@ -19,12 +20,15 @@ class Memory(ABC):
 
     def __init__(
         self,
-        max_size: int = 1,
+        config: CfgNode,
     ) -> None:
-        '''
+        '''Initialization method
+
+        Args:
+            max_size: Maximum size of the memory, unlimited if 0
         '''
 
-        self.max_size = max_size
+        self.max_size = config.SIZE
 
     def __getattr__(self, key: str) -> Any:
         '''
@@ -45,6 +49,18 @@ class Memory(ABC):
         '''
 
         return self._data[index]
+
+    def __getstate__(self) -> Dict[str, Any]:
+        '''Pickling interface.
+        '''
+
+        return self._data.__getstate__()
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        '''Unpickling interface.
+        '''
+
+        self._data = Ion(**state)
 
     def __repr__(self) -> str:
         '''

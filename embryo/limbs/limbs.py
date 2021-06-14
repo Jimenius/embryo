@@ -13,6 +13,7 @@ import torch
 
 from embryo.brain.central import Central
 from embryo.brain.memory import Memory
+from embryo.limbs import LIMBS_REGISTRY
 from embryo.ion import Ion
 
 
@@ -165,6 +166,7 @@ class Limbs:
         raise NotImplementedError
 
 
+@LIMBS_REGISTRY.register()
 class OffPolicyLimbs(Limbs):
     '''
     '''
@@ -186,22 +188,19 @@ class OffPolicyLimbs(Limbs):
         '''
 
         for i in range(self.env_number):
-            ###
             info = self.interaction.info[i]
+            done = self.interaction.done[i]
             if info:
-                print(info)
                 if isinstance(info, dict) and \
                     'TimeLimit.truncated' in info and \
                     info['TimeLimit.truncated']:
-                    self.prev[i] = -1
-                    continue
-            ###
+                    done = False
             self.prev[i] = self.memory.add(
                 prev=self.prev[i],
                 observation=self.interaction.observation[i],
                 action=self.interaction.action[i],
                 reward=self.interaction.reward[i],
-                done=self.interaction.done[i],
+                done=done,
                 info=self.interaction.info[i],
             )
 

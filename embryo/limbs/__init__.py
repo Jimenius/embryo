@@ -1,1 +1,4 @@
-from embryo.limbs.limbs import Limbs
+from embryo.utils.registry import Registry
+
+
+LIMBS_REGISTRY = Registry('Limbs')

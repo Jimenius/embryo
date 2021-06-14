@@ -1,9 +1,12 @@
 from abc import ABC, abstractmethod
+import logging
 from time import sleep
-from typing import Callable, Union
+from typing import Callable, Optional, Union
 
+from gym.spaces import Box, Discrete, Space, Tuple
 import numpy as np
 import torch
+from yacs.config import CfgNode
 
 from embryo.brain.memory.base import Memory
 from embryo.ion import Ion
@@ -15,144 +18,96 @@ class Central(ABC):
 
     def __init__(
         self,
-        device: Union[torch.device, str] = 'cpu',
-        gamma: float = 1.,
+        config: CfgNode,
+        observation_space: Space,
+        action_space: Space,
     ) -> None:
-        '''
+        '''Initial method
+        
         Args:
-        env: Target environment
-        gamma: Discount factor
-        brain: str
-            Brain index
+            config: Configurations
+            observation_space: Observation space
+            action_space: Action space
         '''
 
         super().__init__()
+        self.config = config
+
+        device: str = config.DEVICE
+        if 'cuda' in device and not torch.cuda.is_available():
+            device = 'cpu'
+            logging.warning(
+                'Attempt to use CUDA but CUDA is not available.'
+                'Device is changed to CPU.'
+            )
         self.device = device
-        # self.env = env
-        # self.model = env.env # Internal environment model alias
-        # self.reset = self.env.reset # Reset environment alias
-        # self.step = self.env.step # Step method alias
 
-        # obs = env.observation_space
-        # acs = env.action_space
-        # if hasattr(obs, 'n'):
-        #     self.state_dim = obs.n
-        # else:
-        #     self.state_dim = obs.shape
+        obs = observation_space
+        acs = action_space[0]
+        self.observation_dim = obs.shape[1:]
+        if isinstance(acs, Discrete):
+            self.action_dim = acs.n
+        elif isinstance(acs, Box):
+            self.action_dim = acs.shape
+            self.action_range = (acs.low, acs.high)
+        else:
+            raise AttributeError(
+                'Can\'t fetch action dimension.',
+            )
 
-        # if hasattr(acs, 'n'):
-        #     self.action_dim = acs.n
-        # else:
-        #     self.action_dim = acs.shape
-        #     self.action_range = (acs.low, acs.high)
-
-        # Parameters
-        self.gamma = gamma
-
-        # # Trained model
-        # self.brain = brain
+        # Gradient step counter
+        self.gradient_step = 0
+        self.training = True
 
     @abstractmethod
     def get_target_value(
         self,
         batch: Ion,
     ) -> Ion:
+        '''
+        '''
+
         raise NotImplementedError # To be completed by subclasses
 
     @abstractmethod
     def update(self):
+        '''
+        '''
+
         raise NotImplementedError # To be completed by subclasses
 
     @abstractmethod
     def load(self):
+        '''
+        '''
+
         raise NotImplementedError # To be completed by subclasses
 
     @abstractmethod
     def save(self):
+        '''
+        '''
+
         raise NotImplementedError # To be completed by subclasses
     
     @abstractmethod
     def control(self, observation):
-        raise NotImplementedError # To be completed by subclasses
-
-    def render(self, num_episode = 1, vis = False, intv = 1, logger = None):
-        '''Evaluate and visualize the result
-
-        Args:
-        num_episode: int
-            Number of render episodes
-        vis: boolean
-            Action values
-        intv: float
-            Time interval for env.render()
-        logger: logging.Logger
-            logger
-            
-        Returns:
-        float
-            Average cumulative rewards achieved in multiple episodes
         '''
-        
-        avg_reward = 0. # Average reward of episodes
-        for episode in range(num_episode):
-            cumulative_reward = 0. # Accumulate rewards of steps in an episode
-            terminal = False
-            observation = self.env.reset()
-            while not terminal:
-                if vis:
-                    self.env.render()
-                    sleep(intv)
-                try:
-                    action = self.control(observation)
-                except NotImplementedError:
-                    action = self.env.action_space.sample()
-                observation, reward, terminal, _ = self.env.step(action)
-                cumulative_reward += reward
-                
-            avg_reward += cumulative_reward
-            if vis:
-                self.env.render()
-                logtxt = 'Episode {} ends with cumulative reward {}.'.format(episode, cumulative_reward)
-                try:
-                    logger(logtxt)
-                except:
-                    print(logtxt)
+        '''
 
-        if num_episode > 0: # Avoid divided by 0
-            avg_reward /= num_episode
-            logtxt = 'The agent achieves an average reward of {} in {} episodes.'.format(avg_reward, num_episode)
-            try:
-                logger(logtxt)
-            except:
-                print(logtxt)
-        self.env.close()
-        return avg_reward
+        raise NotImplementedError # To be completed by subclasses
 
 
 def compute_episodic_return(
-    memory: Memory,
-    indice: np.ndarray,
-    target_fn: Callable[[Ion], Ion],
-    gamma: float = 1.,
-    adv_lambda: float = 1.
 ) -> None:
     '''Compute returns in an episode with General Advantage Estimation. 
 
     Args:
 
     Reference:
+        Schulman et al, High-dimensional Continuous Control Using Generalized Advantage Estimation
     '''
 
-    # batch = memory[indice]
-    # returns = np.roll(v_s_, 1)
-    # factor = (1.0 - done) * gamma
-    # delta = rew + v_s_ * factor - returns
-    # factor *= adv_lambda
-
-    # for i in range(len(reward) - 1, -1, -1):
-    #     gae = delta[i] + m[i] * gae
-    #     returns[i] += gae
-    # return batch
     pass
 
 def compute_nstep_return(
@@ -218,13 +173,11 @@ def compute_nstep_return(
         q_est = target_fn(observations).to(ctype='numpy').value
         returns_est[~temp_batch.done] += gamma ** finish_step[~temp_batch.done] * q_est
 
-
     # observations  =Ion(
     #     observation=temp_batch.onext,
     # )
     # q_est = target_fn(observations).to(ctype='numpy').value
     # returns_est = temp_batch.reward + gamma * q_est.flatten() * temp_batch.done
-
 
     # Write to result
     batch.update(returns=returns_est)

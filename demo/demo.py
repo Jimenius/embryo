@@ -1,9 +1,14 @@
 from argparse import ArgumentParser as AP
 import logging
+
 import gym
-from embryo.agent.agent import Agent
+import numpy as np
+import torch
+
+from embryo.agent import AGENT_REGISTRY
 from embryo.config.defaults import DEFAULT
 from embryo.utils.log import setup
+
 
 def parse_args():
     parser = AP()
@@ -14,16 +19,35 @@ def parse_args():
 
 def main():
     args = parse_args()
-    cfg = DEFAULT.merge_from_file(args.config_file)
-    setup(directory=cfg.OUTPUT_DIR)
-    logging.info('Full config:')
-    logging.info(cfg)
+    cfg = DEFAULT.clone()
+    cfg.set_new_allowed(is_new_allowed=True)
+    cfg.merge_from_file(args.config_file)
+    cfg.freeze()
+
+    output_dir = cfg.OUTPUT_DIR
+    setup(directory=output_dir)
+    logging.info('Full config:\n' + str(cfg))
+
     env_name = cfg.ENVIRONMENT.NAME
     train_env = gym.vector.make(env_name, cfg.ENVIRONMENT.TRAIN_NUM)
-    agent = Agent(cfg.AGENT)
-    agent.learn(train_env)
     test_env = gym.vector.make(env_name, cfg.ENVIRONMENT.TEST_NUM)
-    agent.interact(test_env)
+
+    seed = cfg.SEED
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    agent_cls = AGENT_REGISTRY.get(cfg.AGENT.NAME)
+    agent = agent_cls(
+        config=cfg.AGENT,
+        train_env=train_env,
+        test_env=test_env,
+    )
+    agent.learn()
+    if cfg.SAVE:
+        agent.save(output_dir)
+        logging.info('Saved agent information to {}.'.format(output_dir))
+    agent.perform()
+
 
 if __name__ == '__main__':
     main()

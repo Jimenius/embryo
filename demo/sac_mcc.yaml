@@ -1,0 +1,29 @@
+AGENT:
+  CENTRAL:
+    ACTION_PRIOR: Normal
+    ALPHA_LEARNING_RATE: 0.0003
+    NAME: SACCentral
+    NETWORK:
+      ACTOR:
+        NAME: Actor
+        LEARNING_RATE: 0.0003
+      CRITIC:
+        NAME: Critic
+        LEARNING_RATE: 0.0003
+  MEMORY:
+    SIZE: 50000
+  SOLUTION:
+    GAMMA: 0.99
+    INIT_STEP: 128
+    MAX_EPOCH: 20
+    STEP_PER_EPOCH: 12000
+    STEP_PER_INTERACT: 5
+    TEST_NUM_EPISODE: 100
+    UPDATE_PER_STEP: 0.2
+ENVIRONMENT:
+  NAME: MountainCarContinuous-v0
+  TEST_NUM: 10
+  TRAIN_NUM: 5
+OUTPUT_DIR: /Users/Minhui/Downloads/temp/exp/embryo/
+SAVE: True
+SEED: 1626
